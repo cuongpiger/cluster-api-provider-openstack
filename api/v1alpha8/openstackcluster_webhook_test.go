@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package v1alpha7
+package v1alpha8
 
 import (
 	"testing"
@@ -119,7 +119,7 @@ func TestOpenStackCluster_ValidateUpdate(t *testing.T) {
 					Bastion: &Bastion{
 						Instance: OpenStackMachineSpec{
 							CloudName: "foobar",
-							Image:     "foobar",
+							Image:     ImageFilter{Name: "foobar"},
 							Flavor:    "minimal",
 						},
 						Enabled: true,
@@ -137,7 +137,7 @@ func TestOpenStackCluster_ValidateUpdate(t *testing.T) {
 					Bastion: &Bastion{
 						Instance: OpenStackMachineSpec{
 							CloudName: "foobarbaz",
-							Image:     "foobarbaz",
+							Image:     ImageFilter{Name: "foobarbaz"},
 							Flavor:    "medium",
 						},
 						Enabled: true,
@@ -230,6 +230,21 @@ func TestOpenStackCluster_ValidateUpdate(t *testing.T) {
 			newTemplate: &OpenStackCluster{
 				Spec: OpenStackClusterSpec{
 					CloudName: "foobar",
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "Modifying OpenstackCluster.Spec.ControlPlaneOmitAvailabilityZone is allowed",
+			oldTemplate: &OpenStackCluster{
+				Spec: OpenStackClusterSpec{
+					CloudName: "foobar",
+				},
+			},
+			newTemplate: &OpenStackCluster{
+				Spec: OpenStackClusterSpec{
+					CloudName:                        "foobar",
+					ControlPlaneOmitAvailabilityZone: true,
 				},
 			},
 			wantErr: false,

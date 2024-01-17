@@ -45,7 +45,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/utils/pointer"
 
-	infrav1 "sigs.k8s.io/cluster-api-provider-openstack/api/v1alpha7"
+	infrav1 "sigs.k8s.io/cluster-api-provider-openstack/api/v1alpha8"
 	"sigs.k8s.io/cluster-api-provider-openstack/pkg/clients"
 	"sigs.k8s.io/cluster-api-provider-openstack/pkg/clients/mock"
 	"sigs.k8s.io/cluster-api-provider-openstack/pkg/cloud/services/networking"
@@ -119,51 +119,51 @@ func Test_getPortName(t *testing.T) {
 }
 
 func TestService_getImageID(t *testing.T) {
-	const imageIDA = "ce96e584-7ebc-46d6-9e55-987d72e3806c"
-	const imageIDB = "8f536889-5198-42d7-8314-cb78f4f4755c"
-	const imageIDC = "8f536889-5198-42d7-8314-cb78f4f4755d"
+	const imageID = "ce96e584-7ebc-46d6-9e55-987d72e3806c"
+	const imageName = "test-image"
+	imageTags := []string{"test-tag"}
 
 	tests := []struct {
-		testName  string
-		imageUUID string
-		imageName string
-		expect    func(m *mock.MockImageClientMockRecorder)
-		want      string
-		wantErr   bool
+		testName string
+		image    infrav1.ImageFilter
+		expect   func(m *mock.MockImageClientMockRecorder)
+		want     string
+		wantErr  bool
 	}{
 		{
-			testName:  "Return image uuid if uuid given",
-			imageUUID: imageIDC,
-			want:      imageIDC,
-			expect: func(m *mock.MockImageClientMockRecorder) {
-			},
-			wantErr: false,
+			testName: "Return image ID when ID given",
+			image:    infrav1.ImageFilter{ID: imageID},
+			want:     imageID,
+			expect:   func(m *mock.MockImageClientMockRecorder) {},
+			wantErr:  false,
 		},
 		{
-			testName:  "Return through uuid if both uuid and name given",
-			imageName: "dummy",
-			imageUUID: imageIDC,
+			testName: "Return image ID when name given",
+			image:    infrav1.ImageFilter{Name: imageName},
+			want:     imageID,
 			expect: func(m *mock.MockImageClientMockRecorder) {
-			},
-			want:    imageIDC,
-			wantErr: false,
-		},
-		{
-			testName:  "Return image ID",
-			imageName: "test-image",
-			expect: func(m *mock.MockImageClientMockRecorder) {
-				m.ListImages(images.ListOpts{Name: "test-image"}).Return(
-					[]images.Image{{ID: imageIDA, Name: "test-image"}},
+				m.ListImages(images.ListOpts{Name: imageName}).Return(
+					[]images.Image{{ID: imageID, Name: imageName}},
 					nil)
 			},
-			want:    imageIDA,
 			wantErr: false,
 		},
 		{
-			testName:  "Return no results",
-			imageName: "test-image",
+			testName: "Return image ID when tags given",
+			image:    infrav1.ImageFilter{Tags: imageTags},
+			want:     imageID,
 			expect: func(m *mock.MockImageClientMockRecorder) {
-				m.ListImages(images.ListOpts{Name: "test-image"}).Return(
+				m.ListImages(images.ListOpts{Tags: imageTags}).Return(
+					[]images.Image{{ID: imageID, Name: imageName, Tags: imageTags}},
+					nil)
+			},
+			wantErr: false,
+		},
+		{
+			testName: "Return no results",
+			image:    infrav1.ImageFilter{Name: imageName},
+			expect: func(m *mock.MockImageClientMockRecorder) {
+				m.ListImages(images.ListOpts{Name: imageName}).Return(
 					[]images.Image{},
 					nil)
 			},
@@ -171,21 +171,21 @@ func TestService_getImageID(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			testName:  "Return multiple results",
-			imageName: "test-image",
+			testName: "Return multiple results",
+			image:    infrav1.ImageFilter{Name: imageName},
 			expect: func(m *mock.MockImageClientMockRecorder) {
 				m.ListImages(images.ListOpts{Name: "test-image"}).Return(
 					[]images.Image{
-						{ID: imageIDA, Name: "test-image"},
-						{ID: imageIDB, Name: "test-image"},
+						{ID: imageID, Name: "test-image"},
+						{ID: "123", Name: "test-image"},
 					}, nil)
 			},
 			want:    "",
 			wantErr: true,
 		},
 		{
-			testName:  "OpenStack returns error",
-			imageName: "test-image",
+			testName: "OpenStack returns error",
+			image:    infrav1.ImageFilter{Name: imageName},
 			expect: func(m *mock.MockImageClientMockRecorder) {
 				m.ListImages(images.ListOpts{Name: "test-image"}).Return(
 					nil,
@@ -206,7 +206,7 @@ func TestService_getImageID(t *testing.T) {
 			}
 			tt.expect(mockScopeFactory.ImageClient.EXPECT())
 
-			got, err := s.getImageID(tt.imageUUID, tt.imageName)
+			got, err := s.GetImageID(tt.image)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Service.getImageID() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -261,7 +261,7 @@ func getDefaultOpenStackCluster() *infrav1.OpenStackCluster {
 func getDefaultInstanceSpec() *InstanceSpec {
 	return &InstanceSpec{
 		Name:       openStackMachineName,
-		Image:      imageName,
+		ImageID:    imageUUID,
 		Flavor:     flavorName,
 		SSHKeyName: sshKeyName,
 		UserData:   "user-data",
@@ -375,9 +375,8 @@ func TestService_ReconcileInstance(t *testing.T) {
 		networkRecorder.DeletePort(portUUID).Return(nil)
 	}
 
-	// Expected calls when using default image and flavor
-	expectDefaultImageAndFlavor := func(computeRecorder *mock.MockComputeClientMockRecorder, imageRecorder *mock.MockImageClientMockRecorder) {
-		imageRecorder.ListImages(images.ListOpts{Name: imageName}).Return([]images.Image{{ID: imageUUID}}, nil)
+	// Expected calls when using default flavor
+	expectDefaultFlavor := func(computeRecorder *mock.MockComputeClientMockRecorder) {
 		f := flavors.Flavor{
 			ID:    flavorUUID,
 			VCPUs: 2,
@@ -404,17 +403,6 @@ func TestService_ReconcileInstance(t *testing.T) {
 			}
 			return returnedServer("BUILDING"), nil
 		})
-	}
-
-	// Expected calls when polling for server creation
-	expectServerPoll := func(computeRecorder *mock.MockComputeClientMockRecorder, states []string) {
-		for _, state := range states {
-			computeRecorder.GetServer(instanceUUID).Return(returnedServer(state), nil)
-		}
-	}
-
-	expectServerPollSuccess := func(computeRecorder *mock.MockComputeClientMockRecorder) {
-		expectServerPoll(computeRecorder, []string{"ACTIVE"})
 	}
 
 	returnedVolume := func(uuid string, status string) *volumes.Volume {
@@ -457,10 +445,9 @@ func TestService_ReconcileInstance(t *testing.T) {
 			getInstanceSpec: getDefaultInstanceSpec,
 			expect: func(r *recorders) {
 				expectUseExistingDefaultPort(r.network)
-				expectDefaultImageAndFlavor(r.compute, r.image)
+				expectDefaultFlavor(r.compute)
 
 				expectCreateServer(r.compute, getDefaultServerMap(), false)
-				expectServerPollSuccess(r.compute)
 			},
 			wantErr: false,
 		},
@@ -469,7 +456,7 @@ func TestService_ReconcileInstance(t *testing.T) {
 			getInstanceSpec: getDefaultInstanceSpec,
 			expect: func(r *recorders) {
 				expectUseExistingDefaultPort(r.network)
-				expectDefaultImageAndFlavor(r.compute, r.image)
+				expectDefaultFlavor(r.compute)
 
 				expectCreateServer(r.compute, getDefaultServerMap(), true)
 
@@ -489,7 +476,7 @@ func TestService_ReconcileInstance(t *testing.T) {
 				return s
 			},
 			expect: func(r *recorders) {
-				expectDefaultImageAndFlavor(r.compute, r.image)
+				expectDefaultFlavor(r.compute)
 				expectUseExistingDefaultPort(r.network)
 
 				// Looking up the second port fails
@@ -504,32 +491,6 @@ func TestService_ReconcileInstance(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name:            "Poll until server is created",
-			getInstanceSpec: getDefaultInstanceSpec,
-			expect: func(r *recorders) {
-				expectUseExistingDefaultPort(r.network)
-				expectDefaultImageAndFlavor(r.compute, r.image)
-
-				expectCreateServer(r.compute, getDefaultServerMap(), false)
-				expectServerPoll(r.compute, []string{"BUILDING", "ACTIVE"})
-			},
-			wantErr: false,
-		},
-		{
-			name:            "Server errors during creation",
-			getInstanceSpec: getDefaultInstanceSpec,
-			expect: func(r *recorders) {
-				expectUseExistingDefaultPort(r.network)
-				expectDefaultImageAndFlavor(r.compute, r.image)
-
-				expectCreateServer(r.compute, getDefaultServerMap(), false)
-				expectServerPoll(r.compute, []string{"BUILDING", "ERROR"})
-
-				// Don't delete ports because the server is created: DeleteInstance will do it
-			},
-			wantErr: true,
-		},
-		{
 			name: "Boot from volume success",
 			getInstanceSpec: func() *InstanceSpec {
 				s := getDefaultInstanceSpec()
@@ -540,7 +501,7 @@ func TestService_ReconcileInstance(t *testing.T) {
 			},
 			expect: func(r *recorders) {
 				expectUseExistingDefaultPort(r.network)
-				expectDefaultImageAndFlavor(r.compute, r.image)
+				expectDefaultFlavor(r.compute)
 
 				r.volume.ListVolumes(volumes.ListOpts{Name: fmt.Sprintf("%s-root", openStackMachineName)}).
 					Return([]volumes.Volume{}, nil)
@@ -567,7 +528,6 @@ func TestService_ReconcileInstance(t *testing.T) {
 					},
 				}
 				expectCreateServer(r.compute, createMap, false)
-				expectServerPollSuccess(r.compute)
 
 				// Don't delete ports because the server is created: DeleteInstance will do it
 			},
@@ -586,7 +546,7 @@ func TestService_ReconcileInstance(t *testing.T) {
 			},
 			expect: func(r *recorders) {
 				expectUseExistingDefaultPort(r.network)
-				expectDefaultImageAndFlavor(r.compute, r.image)
+				expectDefaultFlavor(r.compute)
 
 				r.volume.ListVolumes(volumes.ListOpts{Name: fmt.Sprintf("%s-root", openStackMachineName)}).
 					Return([]volumes.Volume{}, nil)
@@ -614,7 +574,6 @@ func TestService_ReconcileInstance(t *testing.T) {
 					},
 				}
 				expectCreateServer(r.compute, createMap, false)
-				expectServerPollSuccess(r.compute)
 
 				// Don't delete ports because the server is created: DeleteInstance will do it
 			},
@@ -631,7 +590,7 @@ func TestService_ReconcileInstance(t *testing.T) {
 			},
 			expect: func(r *recorders) {
 				expectUseExistingDefaultPort(r.network)
-				expectDefaultImageAndFlavor(r.compute, r.image)
+				expectDefaultFlavor(r.compute)
 
 				r.volume.ListVolumes(volumes.ListOpts{Name: fmt.Sprintf("%s-root", openStackMachineName)}).
 					Return([]volumes.Volume{}, nil)
@@ -679,7 +638,7 @@ func TestService_ReconcileInstance(t *testing.T) {
 			},
 			expect: func(r *recorders) {
 				expectUseExistingDefaultPort(r.network)
-				expectDefaultImageAndFlavor(r.compute, r.image)
+				expectDefaultFlavor(r.compute)
 
 				r.volume.ListVolumes(volumes.ListOpts{Name: fmt.Sprintf("%s-root", openStackMachineName)}).
 					Return([]volumes.Volume{}, nil)
@@ -734,7 +693,6 @@ func TestService_ReconcileInstance(t *testing.T) {
 					},
 				}
 				expectCreateServer(r.compute, createMap, false)
-				expectServerPollSuccess(r.compute)
 
 				// Don't delete ports because the server is created: DeleteInstance will do it
 			},
@@ -767,7 +725,7 @@ func TestService_ReconcileInstance(t *testing.T) {
 			},
 			expect: func(r *recorders) {
 				expectUseExistingDefaultPort(r.network)
-				expectDefaultImageAndFlavor(r.compute, r.image)
+				expectDefaultFlavor(r.compute)
 
 				r.volume.ListVolumes(volumes.ListOpts{Name: fmt.Sprintf("%s-etcd", openStackMachineName)}).
 					Return([]volumes.Volume{}, nil)
@@ -809,7 +767,6 @@ func TestService_ReconcileInstance(t *testing.T) {
 					},
 				}
 				expectCreateServer(r.compute, createMap, false)
-				expectServerPollSuccess(r.compute)
 
 				// Don't delete ports because the server is created: DeleteInstance will do it
 			},
@@ -836,7 +793,7 @@ func TestService_ReconcileInstance(t *testing.T) {
 			},
 			expect: func(r *recorders) {
 				expectUseExistingDefaultPort(r.network)
-				expectDefaultImageAndFlavor(r.compute, r.image)
+				expectDefaultFlavor(r.compute)
 
 				r.volume.ListVolumes(volumes.ListOpts{Name: fmt.Sprintf("%s-etcd", openStackMachineName)}).
 					Return([]volumes.Volume{}, nil)
@@ -870,7 +827,6 @@ func TestService_ReconcileInstance(t *testing.T) {
 					},
 				}
 				expectCreateServer(r.compute, createMap, false)
-				expectServerPollSuccess(r.compute)
 
 				// Don't delete ports because the server is created: DeleteInstance will do it
 			},
@@ -893,7 +849,7 @@ func TestService_ReconcileInstance(t *testing.T) {
 			},
 			expect: func(r *recorders) {
 				expectUseExistingDefaultPort(r.network)
-				expectDefaultImageAndFlavor(r.compute, r.image)
+				expectDefaultFlavor(r.compute)
 
 				// Make sure we delete ports
 				expectCleanupDefaultPort(r.network)
@@ -911,7 +867,7 @@ func TestService_ReconcileInstance(t *testing.T) {
 				return s
 			},
 			expect: func(r *recorders) {
-				expectDefaultImageAndFlavor(r.compute, r.image)
+				expectDefaultFlavor(r.compute)
 				extensions := []extensions.Extension{
 					{Extension: common.Extension{Alias: "trunk"}},
 				}

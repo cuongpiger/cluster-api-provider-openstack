@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package v1alpha7
+package v1alpha8
 
 import (
 	"fmt"
@@ -40,8 +40,8 @@ func (r *OpenStackCluster) SetupWebhookWithManager(mgr manager.Manager) error {
 		Complete()
 }
 
-// +kubebuilder:webhook:verbs=create;update,path=/validate-infrastructure-cluster-x-k8s-io-v1alpha7-openstackcluster,mutating=false,failurePolicy=fail,matchPolicy=Equivalent,groups=infrastructure.cluster.x-k8s.io,resources=openstackclusters,versions=v1alpha7,name=validation.openstackcluster.infrastructure.cluster.x-k8s.io,sideEffects=None,admissionReviewVersions=v1beta1
-// +kubebuilder:webhook:verbs=create;update,path=/mutate-infrastructure-cluster-x-k8s-io-v1alpha7-openstackcluster,mutating=true,failurePolicy=fail,matchPolicy=Equivalent,groups=infrastructure.cluster.x-k8s.io,resources=openstackclusters,versions=v1alpha7,name=default.openstackcluster.infrastructure.cluster.x-k8s.io,sideEffects=None,admissionReviewVersions=v1beta1
+// +kubebuilder:webhook:verbs=create;update,path=/validate-infrastructure-cluster-x-k8s-io-v1alpha8-openstackcluster,mutating=false,failurePolicy=fail,matchPolicy=Equivalent,groups=infrastructure.cluster.x-k8s.io,resources=openstackclusters,versions=v1alpha8,name=validation.openstackcluster.infrastructure.cluster.x-k8s.io,sideEffects=None,admissionReviewVersions=v1beta1
+// +kubebuilder:webhook:verbs=create;update,path=/mutate-infrastructure-cluster-x-k8s-io-v1alpha8-openstackcluster,mutating=true,failurePolicy=fail,matchPolicy=Equivalent,groups=infrastructure.cluster.x-k8s.io,resources=openstackclusters,versions=v1alpha8,name=default.openstackcluster.infrastructure.cluster.x-k8s.io,sideEffects=None,admissionReviewVersions=v1beta1
 
 var (
 	_ webhook.Defaulter = &OpenStackCluster{}
@@ -129,6 +129,11 @@ func (r *OpenStackCluster) ValidateUpdate(oldRaw runtime.Object) (admission.Warn
 	// Allow changes to the availability zones.
 	old.Spec.ControlPlaneAvailabilityZones = []string{}
 	r.Spec.ControlPlaneAvailabilityZones = []string{}
+
+	// Allow the scheduling to be changed from CAPI managed to Nova and
+	// vice versa.
+	old.Spec.ControlPlaneOmitAvailabilityZone = false
+	r.Spec.ControlPlaneOmitAvailabilityZone = false
 
 	// Allow change to the allowAllInClusterTraffic.
 	old.Spec.AllowAllInClusterTraffic = false

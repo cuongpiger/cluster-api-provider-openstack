@@ -28,7 +28,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
 
-	infrav1 "sigs.k8s.io/cluster-api-provider-openstack/api/v1alpha7"
+	infrav1 "sigs.k8s.io/cluster-api-provider-openstack/api/v1alpha8"
 	"sigs.k8s.io/cluster-api-provider-openstack/pkg/record"
 	capoerrors "sigs.k8s.io/cluster-api-provider-openstack/pkg/utils/errors"
 	"sigs.k8s.io/cluster-api-provider-openstack/pkg/utils/names"
@@ -313,6 +313,10 @@ func (s *Service) GarbageCollectErrorInstancesPort(eventObject runtime.Object, i
 		// same project, otherwise things will alias and we could delete more than we should.
 		if len(portList) > 1 {
 			return fmt.Errorf("garbage collection of port %s failed, found %d ports with the same name", portName, len(portList))
+		}
+
+		if len(portList) == 0 {
+			continue
 		}
 
 		if err := s.DeletePort(eventObject, portList[0].ID); err != nil {

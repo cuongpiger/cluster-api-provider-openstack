@@ -93,7 +93,8 @@ type OpenStackMachineSpec struct {
 	// The server group to assign the machine to
 	ServerGroupID string `json:"serverGroupID,omitempty"`
 
-	// IdentityRef is a reference to a identity to be used when reconciling this cluster
+	// IdentityRef is a reference to a identity to be used when reconciling this cluster.
+	// If not specified, the identity ref of the cluster will be used instead.
 	// +optional
 	IdentityRef *OpenStackIdentityReference `json:"identityRef,omitempty"`
 }
@@ -136,7 +137,6 @@ type OpenStackMachineStatus struct {
 }
 
 // +kubebuilder:object:root=true
-// +kubebuilder:storageversion
 // +kubebuilder:resource:path=openstackmachines,scope=Namespaced,categories=cluster-api,shortName=osm
 // +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="Cluster",type="string",JSONPath=".metadata.labels.cluster\\.x-k8s\\.io/cluster-name",description="Cluster to which this OpenStackMachine belongs"

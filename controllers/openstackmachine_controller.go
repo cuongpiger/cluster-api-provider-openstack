@@ -48,7 +48,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	infrav1 "sigs.k8s.io/cluster-api-provider-openstack/api/v1alpha7"
+	infrav1 "sigs.k8s.io/cluster-api-provider-openstack/api/v1alpha8"
 	"sigs.k8s.io/cluster-api-provider-openstack/pkg/cloud/services/compute"
 	"sigs.k8s.io/cluster-api-provider-openstack/pkg/cloud/services/loadbalancer"
 	"sigs.k8s.io/cluster-api-provider-openstack/pkg/cloud/services/networking"
@@ -67,6 +67,7 @@ type OpenStackMachineReconciler struct {
 const (
 	waitForClusterInfrastructureReadyDuration = 15 * time.Second
 	waitForInstanceBecomeActiveToReconcile    = 60 * time.Second
+	waitForBuildingInstanceToReconcile        = 10 * time.Second
 )
 
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=openstackmachines,verbs=get;list;watch;create;update;patch;delete
@@ -140,7 +141,13 @@ func (r *OpenStackMachineReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		}
 	}()
 
-	scope, err := r.ScopeFactory.NewClientScopeFromMachine(ctx, r.Client, openStackMachine, r.CaCertificates, log)
+	scope, err := r.ScopeFactory.NewClientScopeFromMachine(ctx, r.Client, openStackMachine, infraCluster, r.CaCertificates, log)
+	if err != nil {
+		return reconcile.Result{}, err
+	}
+
+	// Resolve and store referenced resources
+	err = compute.ResolveReferencedMachineResources(scope, &openStackMachine.Spec, &openStackMachine.Status.ReferencedResources)
 	if err != nil {
 		return reconcile.Result{}, err
 	}
@@ -246,8 +253,13 @@ func (r *OpenStackMachineReconciler) reconcileDelete(scope scope.Scope, cluster 
 		}
 	}
 
-	instanceStatus, err := computeService.GetInstanceStatusByName(openStackMachine, openStackMachine.Name)
-	if err != nil {
+	var instanceStatus *compute.InstanceStatus
+	if openStackMachine.Spec.InstanceID != nil {
+		instanceStatus, err = computeService.GetInstanceStatus(*openStackMachine.Spec.InstanceID)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+	} else if instanceStatus, err = computeService.GetInstanceStatusByName(openStackMachine, openStackMachine.Name); err != nil {
 		return ctrl.Result{}, err
 	}
 	if !openStackCluster.Spec.APIServerLoadBalancer.Enabled && util.IsControlPlaneMachine(machine) && openStackCluster.Spec.APIServerFloatingIP == "" {
@@ -329,7 +341,7 @@ func (r *OpenStackMachineReconciler) reconcileNormal(ctx context.Context, scope 
 	}
 
 	instanceStatus, err := r.getOrCreate(scope.Logger(), cluster, openStackCluster, machine, openStackMachine, computeService, userData)
-	if err != nil {
+	if err != nil || instanceStatus == nil {
 		// Conditions set in getOrCreate
 		return ctrl.Result{}, err
 	}
@@ -379,6 +391,9 @@ func (r *OpenStackMachineReconciler) reconcileNormal(ctx context.Context, scope 
 		scope.Logger().Info("Machine instance state is DELETED, no actions")
 		conditions.MarkFalse(openStackMachine, infrav1.InstanceReadyCondition, infrav1.InstanceDeletedReason, clusterv1.ConditionSeverityError, "")
 		return ctrl.Result{}, nil
+	case infrav1.InstanceStateBuild, infrav1.InstanceStateUndefined:
+		scope.Logger().Info("Waiting for instance to become ACTIVE", "id", instanceStatus.ID(), "status", instanceStatus.State())
+		return ctrl.Result{RequeueAfter: waitForBuildingInstanceToReconcile}, nil
 	default:
 		// The other state is normal (for example, migrating, shutoff) but we don't want to proceed until it's ACTIVE
 		// due to potential conflict or unexpected actions
@@ -431,14 +446,29 @@ func (r *OpenStackMachineReconciler) reconcileNormal(ctx context.Context, scope 
 }
 
 func (r *OpenStackMachineReconciler) getOrCreate(logger logr.Logger, cluster *clusterv1.Cluster, openStackCluster *infrav1.OpenStackCluster, machine *clusterv1.Machine, openStackMachine *infrav1.OpenStackMachine, computeService *compute.Service, userData string) (*compute.InstanceStatus, error) {
-	instanceStatus, err := computeService.GetInstanceStatusByName(openStackMachine, openStackMachine.Name)
-	if err != nil {
-		logger.Info("Unable to get OpenStack instance", "name", openStackMachine.Name)
-		conditions.MarkFalse(openStackMachine, infrav1.InstanceReadyCondition, infrav1.OpenStackErrorReason, clusterv1.ConditionSeverityError, err.Error())
-		return nil, err
+	var instanceStatus *compute.InstanceStatus
+	var err error
+	if openStackMachine.Spec.InstanceID != nil {
+		instanceStatus, err = computeService.GetInstanceStatus(*openStackMachine.Spec.InstanceID)
+		if err != nil {
+			logger.Info("Unable to get OpenStack instance", "name", openStackMachine.Name)
+			conditions.MarkFalse(openStackMachine, infrav1.InstanceReadyCondition, infrav1.OpenStackErrorReason, clusterv1.ConditionSeverityError, err.Error())
+			return nil, err
+		}
 	}
-
 	if instanceStatus == nil {
+		// Check if there is an existing instance with machine name, in case where instance ID would not have been stored in machine status
+		if instanceStatus, err = computeService.GetInstanceStatusByName(openStackMachine, openStackMachine.Name); err == nil {
+			if instanceStatus != nil {
+				return instanceStatus, nil
+			}
+			if openStackMachine.Spec.InstanceID != nil {
+				logger.Info("Not reconciling machine in failed state. The previously existing OpenStack instance is no longer available")
+				conditions.MarkFalse(openStackMachine, infrav1.InstanceReadyCondition, infrav1.InstanceNotFoundReason, clusterv1.ConditionSeverityError, "virtual machine no longer exists")
+				openStackMachine.SetFailure(capierrors.UpdateMachineError, errors.New("virtual machine no longer exists"))
+				return nil, nil
+			}
+		}
 		instanceSpec := machineToInstanceSpec(openStackCluster, machine, openStackMachine, userData)
 		logger.Info("Machine does not exist, creating Machine", "name", openStackMachine.Name)
 		instanceStatus, err = computeService.CreateInstance(openStackMachine, openStackCluster, instanceSpec, cluster.Name)
@@ -447,15 +477,13 @@ func (r *OpenStackMachineReconciler) getOrCreate(logger logr.Logger, cluster *cl
 			return nil, fmt.Errorf("create OpenStack instance: %w", err)
 		}
 	}
-
 	return instanceStatus, nil
 }
 
 func machineToInstanceSpec(openStackCluster *infrav1.OpenStackCluster, machine *clusterv1.Machine, openStackMachine *infrav1.OpenStackMachine, userData string) *compute.InstanceSpec {
 	instanceSpec := compute.InstanceSpec{
 		Name:                   openStackMachine.Name,
-		Image:                  openStackMachine.Spec.Image,
-		ImageUUID:              openStackMachine.Spec.ImageUUID,
+		ImageID:                openStackMachine.Status.ReferencedResources.ImageID,
 		Flavor:                 openStackMachine.Spec.Flavor,
 		SSHKeyName:             openStackMachine.Spec.SSHKeyName,
 		UserData:               userData,
@@ -463,7 +491,7 @@ func machineToInstanceSpec(openStackCluster *infrav1.OpenStackCluster, machine *
 		ConfigDrive:            openStackMachine.Spec.ConfigDrive != nil && *openStackMachine.Spec.ConfigDrive,
 		RootVolume:             openStackMachine.Spec.RootVolume,
 		AdditionalBlockDevices: openStackMachine.Spec.AdditionalBlockDevices,
-		ServerGroupID:          openStackMachine.Spec.ServerGroupID,
+		ServerGroupID:          openStackMachine.Status.ReferencedResources.ServerGroupID,
 		Trunk:                  openStackMachine.Spec.Trunk,
 	}
 
@@ -499,15 +527,21 @@ func machineToInstanceSpec(openStackCluster *infrav1.OpenStackCluster, machine *
 	instanceSpec.SecurityGroups = openStackMachine.Spec.SecurityGroups
 	if openStackCluster.Spec.ManagedSecurityGroups {
 		var managedSecurityGroup string
-		if util.IsControlPlaneMachine(machine) && openStackCluster.Status.ControlPlaneSecurityGroup != nil {
-			managedSecurityGroup = openStackCluster.Status.ControlPlaneSecurityGroup.ID
-		} else if openStackCluster.Status.WorkerSecurityGroup != nil {
-			managedSecurityGroup = openStackCluster.Status.WorkerSecurityGroup.ID
+		if util.IsControlPlaneMachine(machine) {
+			if openStackCluster.Status.ControlPlaneSecurityGroup != nil {
+				managedSecurityGroup = openStackCluster.Status.ControlPlaneSecurityGroup.ID
+			}
+		} else {
+			if openStackCluster.Status.WorkerSecurityGroup != nil {
+				managedSecurityGroup = openStackCluster.Status.WorkerSecurityGroup.ID
+			}
 		}
 
-		instanceSpec.SecurityGroups = append(instanceSpec.SecurityGroups, infrav1.SecurityGroupFilter{
-			ID: managedSecurityGroup,
-		})
+		if managedSecurityGroup != "" {
+			instanceSpec.SecurityGroups = append(instanceSpec.SecurityGroups, infrav1.SecurityGroupFilter{
+				ID: managedSecurityGroup,
+			})
+		}
 	}
 
 	instanceSpec.Ports = openStackMachine.Spec.Ports

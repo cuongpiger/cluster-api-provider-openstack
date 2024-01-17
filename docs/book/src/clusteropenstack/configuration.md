@@ -74,10 +74,33 @@ The image can be referenced by exposing it as an environment variable `OPENSTACK
 
 Some OS like [Fedora CoreOS](https://getfedora.org/en/coreos) or [Flatcar](https://www.flatcar.org/) do not use cloud-init but [Ignition](https://coreos.github.io/ignition/) to provision the instance. You need to enable the [Ignition experimental feature](https://cluster-api.sigs.k8s.io/tasks/experimental-features/ignition.html): `export EXP_KUBEADM_BOOTSTRAP_FORMAT_IGNITION=true`
 
-To use Flatcar image:
-* Build the image with the [image-builder](https://image-builder.sigs.k8s.io/capi/providers/openstack.html): `make OEM_ID=openstack build-qemu-flatcar`
-* Export the name of the uploaded image: `export OPENSTACK_FLATCAR_IMAGE_NAME=flatcar-stable-3374.2.5-kube-v1.25.6`
-* When generating the cluster configuration, use the following Cluster API [flavor](https://cluster-api.sigs.k8s.io/clusterctl/commands/generate-cluster.html?#flavors): `--flavor flatcar` (_NOTE_: Don't forget to refer to the [external-cloud-provider](https://cluster-api-openstack.sigs.k8s.io/topics/external-cloud-provider.html) section)
+Flatcar comes in two [flavor][flavor] variants:
+* `flatcar`
+
+  This variant relies on a Flatcar image built using the image-builder project: the Kubernetes version is bound to the Flatcar version and a rebuild of the image is required for each Kubernetes or Flatcar upgrade.
+
+  To build and use Flatcar image:
+    * Build the image with the [image-builder][image-builder]: `make OEM_ID=openstack build-qemu-flatcar`
+    * Upload the image
+    * Export the name of the uploaded image: `export OPENSTACK_FLATCAR_IMAGE_NAME=flatcar-stable-3374.2.5-kube-v1.25.6`
+    * When generating the cluster configuration, use the following Cluster API [flavor][flavor]: `--flavor flatcar` (_NOTE_: Don't forget to refer to the [external-cloud-provider][external-cloud-provider] section)
+
+* `flatcar-sysext`
+
+  This variant relies on a plain Flatcar image and it leverages [systemd-sysext][systemd-sysext] feature to install and update Kubernetes components: the Kubernetes version is not bound to the Flatcar version (i.e Flatcar can be independently upgraded from Kubernetes and vice versa).
+
+  The template comes with a [systemd-sysupdate][systemd-sysupdate] configuration file that will download each new patch version of Kubernetes (i.e if you start with Kubernetes 1.x.y, systemd-sysupdate will automatically pull 1.x.y+1 but not 1.x+1.y), please note that this behavior is disabled by default. To enable the Kubernetes auto-update you can:
+    * Update the template to enable the `systemd-sysupdate.timer`
+    * Or run the following command on the nodes: `sudo systemctl enable --now systemd-sysupdate.timer`
+
+  When the Kubernetes release reaches end-of-life it will not receive updates anymore. To switch to a new major version, do a `sudo rm /etc/sysupdate.kubernetes.d/kubernetes-*.conf` and download the new update config into the folder with `cd /etc/sysupdate.kubernetes.d && sudo wget https://github.com/flatcar/sysext-bakery/releases/download/latest/kubernetes-${KUBERNETES_VERSION%.*}.conf`.
+
+  To coordinate the node reboot, we recommend to use [Kured][kured]. Note that running `kubeadm upgrade apply` on the first controller and `kubeadm upgrade node` on all other nodes is not automated (yet), see the [docs](https://kubernetes.io/docs/tasks/administer-cluster/kubeadm/kubeadm-upgrade/).
+
+  To use Flatcar image:
+    * Upload an image on OpenStack from the Flatcar release servers (e.g for Stable, you might use this image: https://stable.release.flatcar-linux.net/amd64-usr/current/flatcar_production_openstack_image.img)
+    * Export the name of the uploaded image: `export FLATCAR_IMAGE_NAME=flatcar_production_openstack_image`
+    * When generating the cluster configuration, use the following Cluster API [flavor][flavor]: `--flavor flatcar-sysext` (_NOTE_: Don't forget to refer to the [external-cloud-provider][external-cloud-provider] section)
 
 ## SSH key pair
 
@@ -178,7 +201,7 @@ Note: If your openstack cluster does not already have a public network, you shou
 You can use a pre-existing router instead of creating a new one. When deleting a cluster a pre-existing router will not be deleted.
 
  ```yaml
- apiVersion: infrastructure.cluster.x-k8s.io/v1alpha7
+ apiVersion: infrastructure.cluster.x-k8s.io/v1alpha8
  kind: OpenStackCluster
  metadata:
    name: <cluster-name>
@@ -245,7 +268,7 @@ It is possible to restrict access to the Kubernetes API server on a network leve
 the allowed CIDRs by `spec.APIServerLoadBalancer.AllowedCIDRs` of `OpenStackCluster`.
 
 ```yaml
-apiVersion: infrastructure.cluster.x-k8s.io/v1alpha7
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha8
 kind: OpenStackCluster
 metadata:
   name: <cluster-name>
@@ -264,7 +287,7 @@ All known IPs of the target cluster will be discovered dynamically (e.g. you don
 All applied CIDRs (user defined + dynamically discovered) are written back into `status.network.apiServerLoadBalancer.allowedCIDRs`
 
 ```yaml
-apiVersion: infrastructure.cluster.x-k8s.io/v1alpha7
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha8
 kind: OpenStackCluster
 metadata:
   name: <cluster-name>
@@ -297,7 +320,7 @@ If you have a complex query that you want to use to lookup a network, then you c
 By using filters to look up a network, please note that it is possible to get multiple networks as a result. This should not be a problem, however please test your filters with `openstack network list` to be certain that it returns the networks you want. Please refer to the following usage example:
 
 ```yaml
-apiVersion: infrastructure.cluster.x-k8s.io/v1alpha7
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha8
 kind: OpenStackMachineTemplate
 metadata:
   name: <cluster-name>-controlplane
@@ -315,7 +338,7 @@ spec:
 You can specify multiple networks (or subnets) to connect your server to. To do this, simply add another entry in the networks array. The following example connects the server to 3 different networks:
 
 ```yaml
-apiVersion: infrastructure.cluster.x-k8s.io/v1alpha7
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha8
 kind: OpenStackMachineTemplate
 metadata:
   name: <cluster-name>-controlplane
@@ -339,7 +362,7 @@ spec:
 Rather than just using a network, you have the option of specifying a specific subnet to connect your server to. The following is an example of how to specify a specific subnet of a network to use for your server.
 
 ```yaml
-apiVersion: infrastructure.cluster.x-k8s.io/v1alpha7
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha8
 kind: OpenStackMachineTemplate
 metadata:
   name: <cluster-name>-controlplane
@@ -360,7 +383,7 @@ spec:
 A server can also be connected to networks by describing what ports to create. Describing a server's connection with `ports` allows for finer and more advanced configuration. For example, you can specify per-port security groups, fixed IPs, VNIC type or profile.
 
 ```yaml
-apiVersion: infrastructure.cluster.x-k8s.io/v1alpha7
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha8
 kind: OpenStackMachineTemplate
 metadata:
   name: <cluster-name>-controlplane
@@ -458,7 +481,7 @@ ports:
 `port security` can be applied to specific port to enable/disable the `port security` on that port; When not set, it takes the value of the corresponding field at the network level.
 
 ```yaml
-apiVersion: infrastructure.cluster.x-k8s.io/v1alpha7
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha8
 kind: OpenStackMachineTemplate
 metadata:
   name: <cluster-name>-controlplane
@@ -504,7 +527,7 @@ If this is not flexible enough, pre-existing security groups can be added to the
 spec of an `OpenStackMachineTemplate`, e.g.:
 
 ```yaml
-apiVersion: infrastructure.cluster.x-k8s.io/v1alpha7
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha8
 kind: OpenStackMachineTemplate
 metadata:
   name: ${CLUSTER_NAME}-control-plane
@@ -520,7 +543,7 @@ spec:
 You have the ability to tag all resources created by the cluster in the `OpenStackCluster` spec. Here is an example how to configure tagging:
 
 ```yaml
-apiVersion: infrastructure.cluster.x-k8s.io/v1alpha7
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha8
 kind: OpenStackCluster
 metadata:
   name: <cluster-name>
@@ -533,7 +556,7 @@ spec:
 To tag resources specific to a machine, add a value to the tags field in the `OpenStackMachineTemplate` spec like this:
 
 ```yaml
-apiVersion: infrastructure.cluster.x-k8s.io/v1alpha7
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha8
 kind: OpenStackMachineTemplate
 metadata:
   name: <cluster-name>-controlplane
@@ -550,7 +573,7 @@ spec:
 You also have the option to add metadata to instances. Here is a usage example:
 
 ```yaml
-apiVersion: infrastructure.cluster.x-k8s.io/v1alpha7
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha8
 kind: OpenStackMachineTemplate
 metadata:
   name: <cluster-name>-controlplane
@@ -568,7 +591,7 @@ spec:
 For example in `OpenStackMachineTemplate` set `spec.rootVolume.diskSize` to something greater than `0` means boot from volume.
 
 ```yaml
-apiVersion: infrastructure.cluster.x-k8s.io/v1alpha7
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha8
 kind: OpenStackMachineTemplate
 metadata:
   name: <cluster-name>-controlplane
@@ -626,7 +649,7 @@ spec:
   ...
   bastion:
     ...
-        floatingIP: <Floating IP address>
+    floatingIP: <Floating IP address>
 ```
 
 If `managedSecurityGroups: true`, security group rule opening 22/tcp is added to security groups for bastion, controller, and worker nodes respectively. Otherwise, you have to add `securityGroups` to the `bastion` in `OpenStackCluster` spec and `OpenStackMachineTemplate` spec template respectively.
@@ -640,3 +663,10 @@ $ kubectl get openstackcluster
 NAME    CLUSTER   READY   NETWORK                                SUBNET                                 BASTION
 nonha   nonha     true    2e2a2fad-28c0-4159-8898-c0a2241a86a7   53cb77ab-86a6-4f2c-8d87-24f8411f15de   10.0.0.213
 ```
+
+[external-cloud-provider]: https://cluster-api-openstack.sigs.k8s.io/topics/external-cloud-provider.html
+[flavor]: https://cluster-api.sigs.k8s.io/clusterctl/commands/generate-cluster.html?#flavors
+[image-builder]: https://image-builder.sigs.k8s.io/capi/providers/openstack.html
+[kured]: https://github.com/kubereboot/kured
+[systemd-sysext]: https://www.flatcar.org/docs/latest/provisioning/sysext/
+[systemd-sysupdate]: https://www.freedesktop.org/software/systemd/man/latest/sysupdate.d.html

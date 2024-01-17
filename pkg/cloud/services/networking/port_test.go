@@ -28,7 +28,7 @@ import (
 	"github.com/gophercloud/gophercloud/openstack/networking/v2/subnets"
 	. "github.com/onsi/gomega"
 
-	infrav1 "sigs.k8s.io/cluster-api-provider-openstack/api/v1alpha7"
+	infrav1 "sigs.k8s.io/cluster-api-provider-openstack/api/v1alpha8"
 	"sigs.k8s.io/cluster-api-provider-openstack/pkg/clients/mock"
 )
 
@@ -585,6 +585,19 @@ func Test_GarbageCollectErrorInstancesPort(t *testing.T) {
 			},
 			portOpts: []infrav1.PortOpts{
 				{},
+				{},
+			},
+			wantErr: false,
+		}, {
+			name: "garbage collects no ports in an instance",
+			expect: func(m *mock.MockNetworkClientMockRecorder) {
+				o1 := ports.ListOpts{
+					Name: portName1,
+				}
+				p1 := []ports.Port{}
+				m.ListPort(o1).Return(p1, nil)
+			},
+			portOpts: []infrav1.PortOpts{
 				{},
 			},
 			wantErr: false,

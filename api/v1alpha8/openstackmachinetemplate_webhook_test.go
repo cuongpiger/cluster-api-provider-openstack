@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package v1alpha7
+package v1alpha8
 
 import (
 	"context"
@@ -45,7 +45,7 @@ func TestOpenStackMachineTemplate_ValidateUpdate(t *testing.T) {
 					Template: OpenStackMachineTemplateResource{
 						Spec: OpenStackMachineSpec{
 							Flavor: "foo",
-							Image:  "bar",
+							Image:  ImageFilter{Name: "bar"},
 						},
 					},
 				},
@@ -55,7 +55,7 @@ func TestOpenStackMachineTemplate_ValidateUpdate(t *testing.T) {
 					Template: OpenStackMachineTemplateResource{
 						Spec: OpenStackMachineSpec{
 							Flavor: "foo",
-							Image:  "NewImage",
+							Image:  ImageFilter{Name: "NewImage"},
 						},
 					},
 				},
@@ -70,7 +70,7 @@ func TestOpenStackMachineTemplate_ValidateUpdate(t *testing.T) {
 					Template: OpenStackMachineTemplateResource{
 						Spec: OpenStackMachineSpec{
 							Flavor: "foo",
-							Image:  "bar",
+							Image:  ImageFilter{Name: "bar"},
 						},
 					},
 				},
@@ -83,7 +83,7 @@ func TestOpenStackMachineTemplate_ValidateUpdate(t *testing.T) {
 					Template: OpenStackMachineTemplateResource{
 						Spec: OpenStackMachineSpec{
 							Flavor: "foo",
-							Image:  "bar",
+							Image:  ImageFilter{Name: "bar"},
 						},
 					},
 				},
@@ -100,7 +100,7 @@ func TestOpenStackMachineTemplate_ValidateUpdate(t *testing.T) {
 					Template: OpenStackMachineTemplateResource{
 						Spec: OpenStackMachineSpec{
 							Flavor: "foo",
-							Image:  "bar",
+							Image:  ImageFilter{Name: "bar"},
 						},
 					},
 				},
@@ -110,7 +110,7 @@ func TestOpenStackMachineTemplate_ValidateUpdate(t *testing.T) {
 					Template: OpenStackMachineTemplateResource{
 						Spec: OpenStackMachineSpec{
 							Flavor: "foo",
-							Image:  "NewImage",
+							Image:  ImageFilter{Name: "NewImage"},
 						},
 					},
 				},
@@ -125,7 +125,7 @@ func TestOpenStackMachineTemplate_ValidateUpdate(t *testing.T) {
 					Template: OpenStackMachineTemplateResource{
 						Spec: OpenStackMachineSpec{
 							Flavor: "foo",
-							Image:  "bar",
+							Image:  ImageFilter{Name: "bar"},
 						},
 					},
 				},
@@ -140,7 +140,7 @@ func TestOpenStackMachineTemplate_ValidateUpdate(t *testing.T) {
 					Template: OpenStackMachineTemplateResource{
 						Spec: OpenStackMachineSpec{
 							Flavor: "foo",
-							Image:  "NewImage",
+							Image:  ImageFilter{Name: "NewImage"},
 						},
 					},
 				},

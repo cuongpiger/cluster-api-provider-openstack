@@ -24,7 +24,7 @@ import (
 	runtime "k8s.io/apimachinery/pkg/runtime"
 	ctrlconversion "sigs.k8s.io/controller-runtime/pkg/conversion"
 
-	infrav1 "sigs.k8s.io/cluster-api-provider-openstack/api/v1alpha7"
+	infrav1 "sigs.k8s.io/cluster-api-provider-openstack/api/v1alpha8"
 )
 
 func TestConvertFrom(t *testing.T) {
@@ -49,7 +49,7 @@ func TestConvertFrom(t *testing.T) {
 				Spec: OpenStackClusterSpec{},
 				ObjectMeta: metav1.ObjectMeta{
 					Annotations: map[string]string{
-						"cluster.x-k8s.io/conversion-data": "{\"spec\":{\"allowAllInClusterTraffic\":false,\"apiServerLoadBalancer\":{},\"cloudName\":\"\",\"controlPlaneEndpoint\":{\"host\":\"\",\"port\":0},\"disableAPIServerFloatingIP\":false,\"managedSecurityGroups\":false,\"network\":{},\"subnet\":{}},\"status\":{\"ready\":false}}",
+						"cluster.x-k8s.io/conversion-data": "{\"spec\":{\"allowAllInClusterTraffic\":false,\"apiServerLoadBalancer\":{},\"cloudName\":\"\",\"controlPlaneEndpoint\":{\"host\":\"\",\"port\":0},\"disableAPIServerFloatingIP\":false,\"disableExternalNetwork\":false,\"externalNetwork\":{},\"managedSecurityGroups\":false,\"network\":{},\"subnet\":{}},\"status\":{\"ready\":false}}",
 					},
 				},
 			},
@@ -64,7 +64,7 @@ func TestConvertFrom(t *testing.T) {
 				Spec: OpenStackClusterTemplateSpec{},
 				ObjectMeta: metav1.ObjectMeta{
 					Annotations: map[string]string{
-						"cluster.x-k8s.io/conversion-data": "{\"spec\":{\"template\":{\"spec\":{\"allowAllInClusterTraffic\":false,\"apiServerLoadBalancer\":{},\"cloudName\":\"\",\"controlPlaneEndpoint\":{\"host\":\"\",\"port\":0},\"disableAPIServerFloatingIP\":false,\"managedSecurityGroups\":false,\"network\":{},\"subnet\":{}}}}}",
+						"cluster.x-k8s.io/conversion-data": "{\"spec\":{\"template\":{\"spec\":{\"allowAllInClusterTraffic\":false,\"apiServerLoadBalancer\":{},\"cloudName\":\"\",\"controlPlaneEndpoint\":{\"host\":\"\",\"port\":0},\"disableAPIServerFloatingIP\":false,\"disableExternalNetwork\":false,\"externalNetwork\":{},\"managedSecurityGroups\":false,\"network\":{},\"subnet\":{}}}}}",
 					},
 				},
 			},
@@ -79,7 +79,7 @@ func TestConvertFrom(t *testing.T) {
 				Spec: OpenStackMachineSpec{},
 				ObjectMeta: metav1.ObjectMeta{
 					Annotations: map[string]string{
-						"cluster.x-k8s.io/conversion-data": "{\"spec\":{\"cloudName\":\"\",\"flavor\":\"\"},\"status\":{\"ready\":false}}",
+						"cluster.x-k8s.io/conversion-data": "{\"spec\":{\"cloudName\":\"\",\"flavor\":\"\",\"image\":{}},\"status\":{\"ready\":false,\"referencedResources\":{}}}",
 					},
 				},
 			},
@@ -94,7 +94,7 @@ func TestConvertFrom(t *testing.T) {
 				Spec: OpenStackMachineTemplateSpec{},
 				ObjectMeta: metav1.ObjectMeta{
 					Annotations: map[string]string{
-						"cluster.x-k8s.io/conversion-data": "{\"spec\":{\"template\":{\"spec\":{\"cloudName\":\"\",\"flavor\":\"\"}}}}",
+						"cluster.x-k8s.io/conversion-data": "{\"spec\":{\"template\":{\"spec\":{\"cloudName\":\"\",\"flavor\":\"\",\"image\":{}}}}}",
 					},
 				},
 			},

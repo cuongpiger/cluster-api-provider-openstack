@@ -44,7 +44,8 @@ import (
 
 	infrav1alpha5 "sigs.k8s.io/cluster-api-provider-openstack/api/v1alpha5"
 	infrav1alpha6 "sigs.k8s.io/cluster-api-provider-openstack/api/v1alpha6"
-	infrav1 "sigs.k8s.io/cluster-api-provider-openstack/api/v1alpha7"
+	infrav1alpha7 "sigs.k8s.io/cluster-api-provider-openstack/api/v1alpha7"
+	infrav1 "sigs.k8s.io/cluster-api-provider-openstack/api/v1alpha8"
 	"sigs.k8s.io/cluster-api-provider-openstack/controllers"
 	"sigs.k8s.io/cluster-api-provider-openstack/pkg/metrics"
 	"sigs.k8s.io/cluster-api-provider-openstack/pkg/record"
@@ -68,6 +69,8 @@ var (
 	openStackClusterConcurrency int
 	openStackMachineConcurrency int
 	syncPeriod                  time.Duration
+	restConfigQPS               float32
+	restConfigBurst             int
 	webhookPort                 int
 	webhookCertDir              string
 	healthAddr                  string
@@ -84,6 +87,7 @@ func init() {
 	_ = infrav1.AddToScheme(scheme)
 	_ = infrav1alpha5.AddToScheme(scheme)
 	_ = infrav1alpha6.AddToScheme(scheme)
+	_ = infrav1alpha7.AddToScheme(scheme)
 	// +kubebuilder:scaffold:scheme
 
 	metrics.RegisterAPIPrometheusMetrics()
@@ -125,6 +129,12 @@ func InitFlags(fs *pflag.FlagSet) {
 
 	fs.DurationVar(&syncPeriod, "sync-period", 10*time.Minute,
 		"The minimum interval at which watched resources are reconciled (e.g. 15m)")
+
+	fs.Float32Var(&restConfigQPS, "kube-api-qps", 20,
+		"Maximum queries per second from the controller client to the Kubernetes API server. Defaults to 20")
+
+	fs.IntVar(&restConfigBurst, "kube-api-burst", 30,
+		"Maximum number of queries that should be allowed in one burst from the controller client to the Kubernetes API server. Defaults to 30")
 
 	fs.IntVar(&webhookPort, "webhook-port", 9443,
 		"Webhook Server port")
@@ -179,6 +189,8 @@ func main() {
 	if err != nil {
 		setupLog.Error(err, "unable to get kubeconfig")
 	}
+	cfg.QPS = restConfigQPS
+	cfg.Burst = restConfigBurst
 
 	var caCerts []byte
 	if caCertsPath != "" {

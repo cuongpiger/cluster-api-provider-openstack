@@ -24,7 +24,7 @@ import (
 	"k8s.io/utils/pointer"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 
-	infrav1 "sigs.k8s.io/cluster-api-provider-openstack/api/v1alpha7"
+	infrav1 "sigs.k8s.io/cluster-api-provider-openstack/api/v1alpha8"
 	"sigs.k8s.io/cluster-api-provider-openstack/pkg/cloud/services/compute"
 )
 
@@ -35,10 +35,10 @@ const (
 	controlPlaneSecurityGroupUUID = "c9817a91-4821-42db-8367-2301002ab659"
 	workerSecurityGroupUUID       = "9c6c0d28-03c9-436c-815d-58440ac2c1c8"
 	serverGroupUUID               = "7b940d62-68ef-4e42-a76a-1a62e290509c"
+	imageUUID                     = "ce96e584-7ebc-46d6-9e55-987d72e3806c"
 
 	openStackMachineName = "test-openstack-machine"
 	namespace            = "test-namespace"
-	imageName            = "test-image"
 	flavorName           = "test-flavor"
 	sshKeyName           = "test-ssh-key"
 	failureDomain        = "test-failure-domain"
@@ -83,14 +83,21 @@ func getDefaultOpenStackMachine() *infrav1.OpenStackMachine {
 			// TODO: Test Networks, Ports, Subnet, and Trunk separately
 			CloudName:  "test-cloud",
 			Flavor:     flavorName,
-			Image:      imageName,
+			Image:      infrav1.ImageFilter{ID: imageUUID},
 			SSHKeyName: sshKeyName,
 			Tags:       []string{"test-tag"},
 			ServerMetadata: map[string]string{
 				"test-metadata": "test-value",
 			},
-			ConfigDrive:   pointer.Bool(true),
-			ServerGroupID: serverGroupUUID,
+			ConfigDrive:    pointer.Bool(true),
+			SecurityGroups: []infrav1.SecurityGroupFilter{},
+			ServerGroup:    &infrav1.ServerGroupFilter{ID: serverGroupUUID},
+		},
+		Status: infrav1.OpenStackMachineStatus{
+			ReferencedResources: infrav1.ReferencedMachineResources{
+				ImageID:       imageUUID,
+				ServerGroupID: serverGroupUUID,
+			},
 		},
 	}
 }
@@ -98,17 +105,18 @@ func getDefaultOpenStackMachine() *infrav1.OpenStackMachine {
 func getDefaultInstanceSpec() *compute.InstanceSpec {
 	return &compute.InstanceSpec{
 		Name:       openStackMachineName,
-		Image:      imageName,
+		ImageID:    imageUUID,
 		Flavor:     flavorName,
 		SSHKeyName: sshKeyName,
 		UserData:   "user-data",
 		Metadata: map[string]string{
 			"test-metadata": "test-value",
 		},
-		ConfigDrive:   *pointer.Bool(true),
-		FailureDomain: *pointer.String(failureDomain),
-		ServerGroupID: serverGroupUUID,
-		Tags:          []string{"test-tag"},
+		ConfigDrive:    *pointer.Bool(true),
+		FailureDomain:  *pointer.String(failureDomain),
+		ServerGroupID:  serverGroupUUID,
+		SecurityGroups: []infrav1.SecurityGroupFilter{},
+		Tags:           []string{"test-tag"},
 	}
 }
 
@@ -162,6 +170,44 @@ func Test_machineToInstanceSpec(t *testing.T) {
 			wantInstanceSpec: func() *compute.InstanceSpec {
 				i := getDefaultInstanceSpec()
 				i.SecurityGroups = []infrav1.SecurityGroupFilter{{ID: workerSecurityGroupUUID}}
+				return i
+			},
+		},
+		{
+			name: "Control plane security group not applied to worker",
+			openStackCluster: func() *infrav1.OpenStackCluster {
+				c := getDefaultOpenStackCluster()
+				c.Spec.ManagedSecurityGroups = true
+				c.Status.WorkerSecurityGroup = nil
+				return c
+			},
+			machine:          getDefaultMachine,
+			openStackMachine: getDefaultOpenStackMachine,
+			wantInstanceSpec: func() *compute.InstanceSpec {
+				i := getDefaultInstanceSpec()
+				i.SecurityGroups = []infrav1.SecurityGroupFilter{}
+				return i
+			},
+		},
+		{
+			name: "Worker security group not applied to control plane",
+			openStackCluster: func() *infrav1.OpenStackCluster {
+				c := getDefaultOpenStackCluster()
+				c.Spec.ManagedSecurityGroups = true
+				c.Status.ControlPlaneSecurityGroup = nil
+				return c
+			},
+			machine: func() *clusterv1.Machine {
+				m := getDefaultMachine()
+				m.Labels = map[string]string{
+					clusterv1.MachineControlPlaneLabel: "true",
+				}
+				return m
+			},
+			openStackMachine: getDefaultOpenStackMachine,
+			wantInstanceSpec: func() *compute.InstanceSpec {
+				i := getDefaultInstanceSpec()
+				i.SecurityGroups = []infrav1.SecurityGroupFilter{}
 				return i
 			},
 		},
